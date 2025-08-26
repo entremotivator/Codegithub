@@ -17,6 +17,25 @@ uploaded_zip = st.file_uploader("📂 Upload a ZIP file of your folder", type="z
 
 create_repo = st.button("🚀 Create GitHub Repo & Upload")
 
+def extract_zip_to_folder(zip_file, target_folder):
+    """Extract ZIP contents directly into target folder, flattening single root folder if needed."""
+    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        # Detect if ZIP has a single root folder
+        root_folders = {os.path.normpath(f).split(os.sep)[0] for f in zip_ref.namelist() if f.strip()}
+        if len(root_folders) == 1:
+            # Extract contents of that folder, not the folder itself
+            root_folder = list(root_folders)[0]
+            for member in zip_ref.namelist():
+                if member.startswith(root_folder):
+                    # Remove root folder from path
+                    relative_path = os.path.relpath(member, root_folder)
+                    if relative_path != ".":
+                        zip_ref.extract(member, target_folder)
+                        final_path = os.path.join(target_folder, member)
+                        shutil.move(final_path, os.path.join(target_folder, relative_path))
+        else:
+            zip_ref.extractall(target_folder)
+
 if create_repo:
     if not all([github_token, github_username, repo_name_raw, uploaded_zip]):
         st.warning("Please complete all fields and upload a ZIP file.")
@@ -41,19 +60,14 @@ if create_repo:
             zip_path = os.path.join(tmpdir, uploaded_zip.name)
             with open(zip_path, "wb") as f:
                 f.write(uploaded_zip.getbuffer())
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # Extract to temp
-                for member in zip_ref.namelist():
-                    # Safely extract: extract to repo_folder
-                    zip_ref.extract(member, repo_folder)
 
-            # The extracted content is now always in repo_folder, regardless of ZIP structure
+            extract_zip_to_folder(zip_path, repo_folder)
 
             # Step 3: Init and push Git repo
             repo = Repo.init(repo_folder)
             repo.git.config('user.email', f'{github_username}@users.noreply.github.com')
             repo.git.config('user.name', github_username)
-            repo.git.add(A=True)  # Add all files (alternative to repo.index.add)
+            repo.git.add(A=True)
             repo.index.commit("Initial commit")
 
             remote_url = f"https://{github_username}:{github_token}@github.com/{github_username}/{repo_name}.git"
